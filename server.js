@@ -15,19 +15,23 @@ const MIME = {
 };
 
 const SNAP_DIR = process.env.SNAP_DIR || ROOT;
-// Тестовий ендпоінт знімків вмикається тільки локально: SNAP_ENABLE=1 node server.js
-const SNAP_ON = process.env.SNAP_ENABLE === "1";
+// Тестовий ендпоінт /snap працює ТІЛЬКИ з локальної машини (loopback)
+const isLoopback = req => {
+  const a = req.socket.remoteAddress || "";
+  return a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
+};
 
 http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || "/").split("?")[0]);
-  if (req.method === "POST" && p === "/snap" && SNAP_ON) {
+  if (req.method === "POST" && p === "/snap" && isLoopback(req)) {
     let body = "";
     req.on("data", c => { body += c; if (body.length > 8e6) req.destroy(); });
     req.on("end", () => {
-      const m = body.match(/^data:image\/(png|jpeg);base64,(.+)$/s);
+      const m = body.match(/^data:(image\/png|image\/jpeg|application\/json);base64,(.+)$/s);
       if (!m) { res.writeHead(400); res.end(); return; }
+      const ext = m[1] === "image/png" ? ".png" : m[1] === "image/jpeg" ? ".jpg" : ".json";
       const name = ((req.url.split("?name=")[1] || "snap")).replace(/[^a-zA-Z0-9_-]/g, "") || "snap";
-      const file = path.join(SNAP_DIR, name + (m[1] === "jpeg" ? ".jpg" : ".png"));
+      const file = path.join(SNAP_DIR, name + ext);
       fs.writeFile(file, Buffer.from(m[2], "base64"), err => {
         res.writeHead(err ? 500 : 200); res.end(err ? "err" : "ok " + file);
       });
