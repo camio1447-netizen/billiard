@@ -1335,8 +1335,13 @@ function drawAimGuide(c, cue, ang, power) {
   line(c, cue.x + dx * (BR + 2), cue.y + dy * (BR + 2), hx, hy);
   c.setLineDash([]);
   if (hit.kind === "ball") {
-    c.beginPath(); c.arc(hx, hy, BR, 0, 7);
-    c.strokeStyle = "rgba(255,255,255,.8)"; c.lineWidth = 2; c.stroke();
+    // Позначка точки контакту. Раніше це було суцільне біле коло розміру
+    // кулі — читалось як другий біток на столі; тепер пунктирна золота мітка.
+    c.save();
+    c.setLineDash([4, 5]);
+    c.beginPath(); c.arc(hx, hy, BR - 1.5, 0, 7);
+    c.strokeStyle = "rgba(226,180,96,.8)"; c.lineWidth = 1.6; c.stroke();
+    c.restore();
     const b = hit.ball;
     let tx = b.x - hx, ty = b.y - hy;
     const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
