@@ -819,7 +819,11 @@ function potBall(b, p) {
   if (G.mode === "net" && G.simAuth) netSend({ t: "pot", id: b.id, px: p.x, py: p.y });
 }
 
-function allStopped() { return activeBalls().every(b => b.vx === 0 && b.vy === 0); }
+// без alloc: викликається кожен крок симуляції
+function allStopped() {
+  for (const b of G.balls) if (!b.potted && (b.vx !== 0 || b.vy !== 0)) return false;
+  return true;
+}
 
 // ---------- ПРАВИЛА ----------
 
@@ -829,9 +833,8 @@ function beginShot(vx, vy) {
   // стан НА ПОЧАТОК удару — правила рахуються від нього, а не від пост-фактум
   let ownLeftStart = null;
   if (!G.open && g) ownLeftStart = activeBalls().filter(b => groupOf(b.id) === g).length;
-  const clearedStart = ownLeftStart === 0;
   G.shot = {
-    first: null, potted: [], cueDown: false, clearedStart, wasBreak: G.isBreak, by: me,
+    first: null, potted: [], cueDown: false, wasBreak: G.isBreak, by: me,
     openStart: G.open, groupStart: g, ownLeftStart,
     spin: { x: G.spin.x, y: G.spin.y }, sideLeft: G.spin.x, spinApplied: false, cueDist: 0,
   };
@@ -880,10 +883,11 @@ function resolveShot() {
       toasts.push("Вісімка з розбою — повертається на стіл!");
       eightDown = false;
     } else {
+      const cleared = sh.ownLeftStart === 0;   // одне джерело правди
       let winner, reason;
-      if (sh.clearedStart && !foul) { winner = me; reason = "eight"; }
+      if (cleared && !foul) { winner = me; reason = "eight"; }
       else if (cueDown) { winner = opp; reason = "scratch8"; }
-      else if (!sh.clearedStart) { winner = opp; reason = "early8"; }
+      else if (!cleared) { winner = opp; reason = "early8"; }
       else { winner = opp; reason = "foulOn8"; }
       G.series[winner]++;
       return buildOutcome({ over: { winner, reason }, toasts });
@@ -1003,6 +1007,22 @@ function rayCircle(px, py, dx, dy, cx, cy, r) {
   let t = -b - s;
   if (t < 0.001) { t = -b + s; if (t < 0.001) return null; }
   return t;
+}
+
+// Куди НАСПРАВДІ піде прицільна куля: нормаль контакту (tx,ty) плюс знос
+// сукном ("throw") у бік дотичної складової удару. Одна формула для прицілу
+// гравця і для бота — щоб вони не розходились у прогнозі.
+function throwDir(dx, dy, tx, ty) {
+  const dn = dx * tx + dy * ty;
+  let ttx = dx - dn * tx, tty = dy - dn * ty;
+  const tm = Math.hypot(ttx, tty);
+  if (tm > 1e-6 && dn > 1e-6) {
+    const rho = Math.min(0.124 * (tm / dn), 0.197);
+    const nx = tx + (ttx / tm) * rho, ny = ty + (tty / tm) * rho;
+    const nl = Math.hypot(nx, ny) || 1;
+    return { x: nx / nl, y: ny / nl };
+  }
+  return { x: tx, y: ty };
 }
 
 function rayCapsule(px, py, dx, dy, s, R) {
@@ -1305,17 +1325,8 @@ function drawAimGuide(c, cue, ang, power) {
     const b = hit.ball;
     let tx = b.x - hx, ty = b.y - hy;
     const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-    // поправка на "throw": сукно зносить прицільну кулю в бік дотичної
-    // складової удару — та сама формула, що у фізиці зіткнення
-    const dn = dx * tx + dy * ty;
-    let ttx = dx - dn * tx, tty = dy - dn * ty;
-    const tm = Math.hypot(ttx, tty);
-    if (tm > 1e-6 && dn > 1e-6) {
-      const rho = Math.min(0.124 * (tm / dn), 0.197);
-      ttx /= tm; tty /= tm;
-      tx += ttx * rho; ty += tty * rho;
-      const nl = Math.hypot(tx, ty) || 1; tx /= nl; ty /= nl;
-    }
+    // поправка на "throw" — сукно зносить прицільну кулю
+    { const td = throwDir(dx, dy, tx, ty); tx = td.x; ty = td.y; }
     // чи дивиться ця лінія прямо в лузу?
     let pk = null, pt = 1e9;
     for (const p of POCKETS) {
@@ -2092,23 +2103,41 @@ function legalTargetsForBot() {
 }
 function botBestShotFrom(x, y) {
   let best = null;
+  const act = activeBalls();
   for (const b of legalTargetsForBot()) {
     for (const p of POCKETS) {
       const dbp = dist(b.x, b.y, p.x, p.y) || 1;
-      const tx = (p.x - b.x) / dbp, ty = (p.y - b.y) / dbp;
-      const gx = b.x - tx * 2 * BR, gy = b.y - ty * 2 * BR;
+      const px = (p.x - b.x) / dbp, py = (p.y - b.y) / dbp;
+      // Компенсація зносу сукном: підбираємо нормаль контакту так, щоб куля
+      // З УРАХУВАННЯМ throw пішла саме в лузу. Без цього бот на різаних
+      // мазав повз, хоч сам вважав удар вірним.
+      let nx = px, ny = py, bx = px, by = py, be = Infinity;
+      for (let it = 0; it < 4; it++) {
+        const g0x = b.x - nx * 2 * BR, g0y = b.y - ny * 2 * BR;
+        const d0 = dist(x, y, g0x, g0y) || 1;
+        const pr = throwDir((g0x - x) / d0, (g0y - y) / d0, nx, ny);
+        const err = Math.atan2(pr.x * py - pr.y * px, pr.x * px + pr.y * py);
+        const ae = Math.abs(err);
+        if (ae < be) { be = ae; bx = nx; by = ny; }   // тримаємо найкращий варіант
+        if (ae < 0.004) break;
+        const k = err * 0.6;                          // демпфування: без нього
+        const cs = Math.cos(k), sn = Math.sin(k);     // тонкі різані розгойдує
+        const rx = nx * cs - ny * sn; ny = nx * sn + ny * cs; nx = rx;
+      }
+      nx = bx; ny = by;
+      const gx = b.x - nx * 2 * BR, gy = b.y - ny * 2 * BR;
       const dcg = dist(x, y, gx, gy) || 1;
       const ax = (gx - x) / dcg, ay = (gy - y) / dcg;
-      const cut = ax * tx + ay * ty;
+      const cut = ax * nx + ay * ny;
       if (cut < 0.3) continue;
       // шлях білої до ghost-точки має бути чистим і впертись саме в цю кулю
       const hit = castAim(x, y, ax, ay);
       if (!(hit.kind === "ball" && hit.ball.id === b.id && Math.abs(hit.t - dcg) < 26)) continue;
       // шлях цілі до лузи — без перешкод
       let blocked = false;
-      for (const o of activeBalls()) {
+      for (const o of act) {
         if (o.id === b.id || o.id === 0) continue;
-        const t = rayCircle(b.x, b.y, tx, ty, o.x, o.y, 2 * BR - 1);
+        const t = rayCircle(b.x, b.y, px, py, o.x, o.y, 2 * BR - 1);
         if (t !== null && t < dbp - 6) { blocked = true; break; }
       }
       if (blocked) continue;
@@ -2123,7 +2152,8 @@ function botMove() {
   if (G.mode !== "bot" || G.turn !== 1 || G.over || G.scene !== "game") return;
   if (G.phase === "place") {
     let best = null;
-    for (let i = 0; i < 140; i++) {
+    // 140 проб × повний перебір лоз = помітний фриз кадру; 44 вистачає
+    for (let i = 0; i < 44; i++) {
       const x = G.bihKitchen
         ? L + BR + 2 + Math.random() * (HEAD_X - L - 2 * BR - 4)
         : L + BR + 2 + Math.random() * (PLAY_W - 2 * BR - 4);
@@ -2260,9 +2290,16 @@ let updateShown = false;
 function versionBase() {
   return location.protocol.startsWith("http") ? "" : PAGES_URL;
 }
+// -1e9, а не 0: performance.now() на свіжій сторінці ще малий,
+// і з нуля тротлінг заглушив би найпершу перевірку
+let lastUpdCheck = -1e9;
 function checkUpdates() {
   // не смикаємо гравця пропозицією перезавантажитись посеред онлайн-партії
   if (G.scene === "game" && G.mode === "net" && !G.over) return;
+  if (updateShown) return;
+  const n = performance.now();
+  if (n - lastUpdCheck < 20000) return;   // focus+visibilitychange разом
+  lastUpdCheck = n;
   fetch(versionBase() + "version.json?ts=" + Date.now(), { cache: "no-store" })
     .then(r => r.ok ? r.json() : null)
     .then(j => { if (j && (j.v | 0) > GAME_V) showUpdateToast(j.v | 0); })
@@ -2281,8 +2318,11 @@ function showUpdateToast(v) {
     else window.open(PAGES_URL + "?v=" + v, "_blank");
   };
 }
-setTimeout(checkUpdates, 4000);
-setInterval(checkUpdates, 5 * 60 * 1000);
+setTimeout(checkUpdates, 3000);
+setInterval(checkUpdates, 2 * 60 * 1000);
+// повернувся у вкладку — перевіряємо одразу (сторінка з кешу може бути стара)
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdates(); });
+window.addEventListener("focus", checkUpdates);
 
 // ---------- СТАРТ ----------
 function idleTable() {
@@ -2333,6 +2373,9 @@ window.BILLIARD = {
     return BILLIARD.state().phase;
   },
   checkUpdates,
+  forceUpdateCheck: () => { lastUpdCheck = -1e9; updateShown = false; checkUpdates(); },
+  botPlan: botBestShotFrom,
+  throwDir,
   snap: async name => { // знімок стола (для тестів)
     render(0.016);
     const r = await fetch("/snap?name=" + encodeURIComponent(name || "snap"), {
