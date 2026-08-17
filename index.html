@@ -705,8 +705,13 @@ function microStep(dt) {
       b.x = R_ - BR; b.vx = -b.vx * REST_WALL; b.vy *= WALL_TANG;
       applySide(b); sndRail(Math.abs(b.vx) / 1400); netClk("r", Math.abs(b.vx) / 1400);
     }
+    // Куля вже в горлі лузи — фаски її не чіпають. Інакше фаска встигала
+    // виштовхнути/відбити кулю раніше, ніж луза її ловила: удари в лузу
+    // не зараховувались ("закрита луза"), а куля могла зависнути в горлі.
+    let inThroat = false;
+    for (const p of POCKETS) if (dist(b.x, b.y, p.x, p.y) < p.r) { inThroat = true; break; }
     // фаски біля луз (капсульна колізія з відрізком, м'якший відскік)
-    for (const s of JAW_SEGS) {
+    if (!inThroat) for (const s of JAW_SEGS) {
       const ex = s.x2 - s.x1, ey = s.y2 - s.y1;
       const l2 = ex * ex + ey * ey;
       let t = ((b.x - s.x1) * ex + (b.y - s.y1) * ey) / l2;
@@ -790,14 +795,24 @@ function microStep(dt) {
   // лузи
   for (const b of act) {
     if (b.potted) continue;
+    // Центр кулі зайшов за лінію борта — вона вже у вирізі лузи. Без цього
+    // куля могла зависнути в вирізі: не впала, поля не займає, лузу перекрила
+    // і на удари не реагувала.
+    const inCut = b.x < L - 3 || b.x > R_ + 3 || b.y < T - 3 || b.y > B_ + 3;
+    let nearest = null, nd = 1e9;
     for (const p of POCKETS) {
       const d = dist(b.x, b.y, p.x, p.y);
+      if (d < nd) { nd = d; nearest = p; }
       if (d < p.r && d > 1) {
         // "падіння через край": що ближче до центру, то сильніше тягне
         const pull = 2600 * dt * (1 - d / p.r + .25);
         b.vx += (p.x - b.x) / d * pull; b.vy += (p.y - b.y) / d * pull;
       }
       if (d < p.cap) { potBall(b, p); break; }
+    }
+    if (!b.potted && inCut && nearest && nd > 1) {
+      const pull = 2600 * dt;
+      b.vx += (nearest.x - b.x) / nd * pull; b.vy += (nearest.y - b.y) / nd * pull;
     }
     // страховка від "втечі" за межі
     if (!b.potted && (b.x < L - 46 || b.x > R_ + 46 || b.y < T - 46 || b.y > B_ + 46)) {
@@ -1430,11 +1445,13 @@ function render(dt) {
   for (const b of G.balls) {
     if (b.potted) continue;
     if (b.id === 0 && G.phase === "place") continue;
+    // слід за швидкою кулею — кольором самої кулі; білий читався як
+    // "привид білого м'ячика", що тягнеться за кольоровими
     const sp = Math.hypot(b.vx, b.vy);
-    if (sp > 700) {
-      ctx.save(); ctx.globalAlpha = clamp((sp - 700) / 2500, 0, .22);
-      ctx.beginPath(); ctx.arc(b.x - b.vx * .016, b.y - b.vy * .016, BR * .92, 0, 7);
-      ctx.fillStyle = "#fff"; ctx.fill(); ctx.restore();
+    if (sp > 900) {
+      ctx.save(); ctx.globalAlpha = clamp((sp - 900) / 3000, 0, .16);
+      ctx.beginPath(); ctx.arc(b.x - b.vx * .012, b.y - b.vy * .012, BR * .86, 0, 7);
+      ctx.fillStyle = COLORS[b.id]; ctx.fill(); ctx.restore();
     }
     drawBall(ctx, b, b.x, b.y);
   }
