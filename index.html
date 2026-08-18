@@ -434,6 +434,11 @@
   #rotateHint p { font-size:13px; color:var(--muted); max-width:260px; line-height:1.6; }
   @media (orientation:portrait) and (max-width:860px) { #rotateHint { display:flex; } }
 
+  /* фулскрін: віддаємо столу весь хром */
+  :fullscreen #hint, :-webkit-full-screen #hint { display:none; }
+  :fullscreen #topbar, :-webkit-full-screen #topbar { height:44px; }
+  :fullscreen #stage, :-webkit-full-screen #stage { padding:8px; }
+
   /* низькі екрани (телефон у ландшафті): столу потрібне все місце */
   @media (max-height:560px) {
     #hint { display:none; }
@@ -834,6 +839,7 @@ function layoutTable() {
 }
 window.addEventListener("resize", layoutTable);
 window.addEventListener("load", layoutTable);
+document.addEventListener("fullscreenchange", () => setTimeout(layoutTable, 60));
 // щільність екрана інколи «дозріває» вже після старту — переміряємо
 [0, 250, 1000].forEach(ms => setTimeout(layoutTable, ms));
 // щільність екрана може змінитись без resize: інший монітор, зум браузера
