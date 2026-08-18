@@ -63,7 +63,7 @@
   #brand svg { width:18px; height:18px; opacity:.9; }
   #brand span { color:var(--dim); font-weight:500; }
   #statusPill {
-    margin:0 auto;
+    margin-left:auto;
     display:flex; align-items:center; gap:9px;
     font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
     color:var(--muted);
@@ -79,7 +79,7 @@
   }
   #statusPill.mine i { background:var(--brass); animation:breathe 2.4s ease-in-out infinite; }
   @keyframes breathe { 0%,100%{opacity:1} 50%{opacity:.35} }
-  #topActions { display:flex; align-items:center; gap:6px; }
+  #topActions { display:flex; align-items:center; gap:6px; margin-left:auto; }
   .ibtn {
     width:34px; height:34px; border-radius:var(--r-sm);
     display:grid; place-items:center;
@@ -158,13 +158,10 @@
   .pcount { font-size:10px; letter-spacing:.08em; color:var(--dim); margin-left:6px; white-space:nowrap; }
   #pc1 .pcount { margin:0 6px 0 0; order:-1; }
   #score {
-    position:absolute; top:16px; left:50%; transform:translateX(-50%);
-    display:flex; align-items:center; gap:10px;
-    font-size:15px; font-weight:700; letter-spacing:.16em;
-    color:var(--text);
-    padding:7px 16px; border-radius:999px;
-    background:rgba(14,17,20,.82); border:1px solid var(--line);
-    backdrop-filter:blur(14px);
+    display:flex; align-items:center; gap:9px; flex:none;
+    font-size:13px; font-weight:700; letter-spacing:.14em; color:var(--text);
+    padding:6px 14px; border-radius:999px;
+    background:rgba(255,255,255,.03); border:1px solid var(--line);
   }
   #score b { color:var(--brass); font-weight:700; }
   #score em { font-style:normal; font-size:9px; letter-spacing:.16em; color:var(--dim); text-transform:uppercase; }
@@ -504,6 +501,7 @@
       БІЛЬЯРД <span>ОНЛАЙН</span>
     </div>
     <div id="statusPill"><i></i><span id="statusText">Головне меню</span></div>
+    <div id="score" style="display:none"><em>Рахунок</em> <b>0</b> : <b>0</b></div>
     <div id="topActions">
       <button class="ibtn" id="btnSound" title="Звук" aria-label="Звук">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7"/><path class="wave" d="M18.5 6a9 9 0 0 1 0 12"/><path class="mute" d="m16 9 5 6M21 9l-5 6" style="display:none"/></svg>
@@ -523,7 +521,6 @@
 
       <div id="hud">
         <div class="pcard" id="pc0"></div>
-        <div id="score"><em>Рахунок</em> <b>0</b> : <b>0</b></div>
         <div class="pcard" id="pc1"></div>
       </div>
 
@@ -2250,7 +2247,7 @@ function updateHUD() {
   }
   const raceTxt = G.raceTo > 1 ? `до ${G.raceTo}` : "Рахунок";
   $("score").innerHTML = `<em>${raceTxt}</em> <b>${G.series[0]}</b> : <b>${G.series[1]}</b>`;
-  $("score").style.display = G.mode === "practice" ? "none" : "flex";
+  $("score").style.display = (G.scene === "game" && G.mode !== "practice") ? "flex" : "none";
   $("pc1").style.display = G.mode === "practice" ? "none" : "block";
   setStatus();
 
@@ -2884,6 +2881,7 @@ function exitToMenu() {
   G.series = [0, 0]; G.oppAim = null; G.sling.active = false;
   G.spin = { x: 0, y: 0 }; setSpinUI(); setPowerUI(0);
   $("hud").classList.remove("on");
+  $("score").style.display = "none";
   $("btnPause").style.display = "none";
   $("emojiBar").style.display = "none";
   idleTable();
