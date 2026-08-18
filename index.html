@@ -431,6 +431,68 @@
   #rotateHint p { font-size:13px; color:var(--muted); max-width:260px; line-height:1.6; }
   @media (orientation:portrait) and (max-width:860px) { #rotateHint { display:flex; } }
 
+  /* ================= ЛЕГЕНДАРНИЙ НІК ================= */
+  .vip {
+    position:relative; display:inline-block;
+    font-weight:800; letter-spacing:.18em;
+    background:linear-gradient(100deg,
+      #7a5a12 0%, #d9b043 14%, #fff6cf 26%, #e6c257 38%,
+      #9c7a20 52%, #e6c257 66%, #fff6cf 78%, #d9b043 90%, #7a5a12 100%);
+    background-size:300% 100%;
+    -webkit-background-clip:text; background-clip:text;
+    -webkit-text-fill-color:transparent; color:transparent;
+    animation:vipSweep 5s linear infinite;
+    filter:drop-shadow(0 0 7px rgba(214,170,60,.5)) drop-shadow(0 1px 0 rgba(0,0,0,.6));
+  }
+  @keyframes vipSweep { from { background-position:0% 50%; } to { background-position:300% 50%; } }
+  @supports not ((-webkit-background-clip:text) or (background-clip:text)) {
+    .vip { background:none; -webkit-text-fill-color:#eccb6a; color:#eccb6a; }
+  }
+  .vip::before, .vip::after {
+    content:""; position:absolute; width:4px; height:4px; border-radius:50%;
+    background:#fff6cf; box-shadow:0 0 6px 2px rgba(255,238,170,.85);
+    opacity:0; pointer-events:none;
+  }
+  .vip::before { left:-7px; top:-2px; animation:vipSpark 3.2s ease-in-out infinite; }
+  .vip::after { right:-7px; bottom:0; animation:vipSpark 3.2s ease-in-out 1.6s infinite; }
+  @keyframes vipSpark {
+    0%, 72%, 100% { opacity:0; transform:scale(.4); }
+    80% { opacity:1; transform:scale(1.15); }
+    90% { opacity:.35; transform:scale(.7); }
+  }
+  .vipCrown {
+    width:13px; height:13px; margin-right:6px; vertical-align:-2px; color:#e9c65c;
+    filter:drop-shadow(0 0 5px rgba(233,198,92,.7));
+    animation:vipCrownGlow 3s ease-in-out infinite;
+  }
+  @keyframes vipCrownGlow {
+    0%,100% { opacity:.85; }
+    50% { opacity:1; filter:drop-shadow(0 0 9px rgba(255,226,130,.95)); }
+  }
+  .pcard.vipCard {
+    border-color:rgba(214,170,60,.45);
+    background:
+      linear-gradient(180deg, rgba(201,162,39,.10), rgba(201,162,39,0) 60%),
+      rgba(14,17,20,.86);
+    box-shadow:0 0 0 1px rgba(214,170,60,.16), 0 18px 44px -20px rgba(0,0,0,.95);
+  }
+  .pcard.vipCard .avatar {
+    color:#f4dc94;
+    border-color:rgba(233,198,92,.55);
+    background:linear-gradient(180deg,#3b3016,#1c1708);
+    box-shadow:0 0 12px rgba(214,170,60,.25);
+  }
+  .pcard.vipCard.active {
+    box-shadow:0 0 0 1px rgba(233,198,92,.35), 0 0 22px -6px rgba(214,170,60,.45),
+               0 18px 44px -20px rgba(0,0,0,.95);
+  }
+  input#nameInput.vipInput {
+    color:#f2d98a; font-weight:700; letter-spacing:.16em;
+    border-color:rgba(214,170,60,.5);
+    background:linear-gradient(180deg, rgba(201,162,39,.10), rgba(255,255,255,.02));
+    text-shadow:0 0 10px rgba(214,170,60,.45);
+  }
+
   /* фулскрін: віддаємо столу весь хром */
   :fullscreen #hint, :-webkit-full-screen #hint { display:none; }
   :fullscreen #topbar, :-webkit-full-screen #topbar { height:44px; }
@@ -2241,8 +2303,9 @@ function updateHUD() {
         : `<span class="pcount" style="color:#d9a441">→ 8-ка!</span>`);
     }
     el.innerHTML = `<div class="prow"><span class="avatar">${initial}</span>` +
-      `<div class="pcol"><div class="pname">${escapeHtml(p.name)}${you}</div>` +
+      `<div class="pcol"><div class="pname">${nameHtml(p.name)}${you}</div>` +
       `<div class="pballs">${ballsHtml}</div></div></div>`;
+    el.classList.toggle("vipCard", isVip(p.name));
     el.classList.toggle("active", G.scene === "game" && !G.over && G.turn === i);
   }
   const raceTxt = G.raceTo > 1 ? `до ${G.raceTo}` : "Рахунок";
@@ -2271,6 +2334,15 @@ function updateHUD() {
   $("spinWrap").classList.toggle("disabled", !canAct);
   canvas.classList.toggle("waiting", G.scene === "game" && !myTurn());
 }
+// Легендарний нік: золото з біжучим блиском, корона та іскри.
+const VIP_NAMES = ["vladik", "владік", "владик", "vlad", "влад"];
+const isVip = s => VIP_NAMES.includes(String(s || "").trim().toLowerCase());
+const CROWN_SVG = "<svg class=\"vipCrown\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M3 8.5 6.4 11 9.6 5.5 12.8 11 16 8.5l1.6 8.5H4.4L3 8.5Z\" opacity=\".95\"/><circle cx=\"3\" cy=\"7\" r=\"1.5\"/><circle cx=\"16.6\" cy=\"7\" r=\"1.5\"/><circle cx=\"9.8\" cy=\"4\" r=\"1.6\"/></svg>";
+function nameHtml(name) {
+  const safe = escapeHtml(name);
+  return isVip(name) ? CROWN_SVG + '<span class="vip">' + safe + '</span>' : safe;
+}
+
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
 
 function toast(msg, bad) {
@@ -2842,6 +2914,12 @@ $("btnBot").onclick = () => {
   G.players[1].name = "Бот Вася";
   applyStart(buildStartData(0));
 };
+(function vipInputWatch() {
+  const inp = $("nameInput");
+  const sync = () => inp.classList.toggle("vipInput", isVip(inp.value));
+  inp.addEventListener("input", sync);
+  sync();
+})();
 $("btnPractice").onclick = () => {
   actx(); saveName();
   destroyNet();
@@ -3025,6 +3103,7 @@ function idleTable() {
 }
 (function boot() {
   $("nameInput").value = localStorage.getItem("vb_name") || "";
+  $("nameInput").dispatchEvent(new Event("input"));
   setSound(SND.on);
   syncSettingsUI();
   G.raceTo = SET.race;
