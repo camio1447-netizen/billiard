@@ -158,7 +158,7 @@
   .pcount { font-size:10px; letter-spacing:.08em; color:var(--dim); margin-left:6px; white-space:nowrap; }
   #pc1 .pcount { margin:0 6px 0 0; order:-1; }
   #score {
-    display:flex; align-items:center; gap:9px; flex:none;
+    display:flex; align-items:center; gap:9px; flex:none; margin-left:4px;
     font-size:13px; font-weight:700; letter-spacing:.14em; color:var(--text);
     padding:6px 14px; border-radius:999px;
     background:rgba(255,255,255,.03); border:1px solid var(--line);
@@ -500,7 +500,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></svg>
       БІЛЬЯРД <span>ОНЛАЙН</span>
     </div>
-    <div id="statusPill"><i></i><span id="statusText">Головне меню</span></div>
     <div id="score" style="display:none"><em>Рахунок</em> <b>0</b> : <b>0</b></div>
     <div id="topActions">
       <button class="ibtn" id="btnSound" title="Звук" aria-label="Звук">
@@ -2203,6 +2202,7 @@ setInterval(() => { if (performance.now() - lastTick > 150) tick(performance.now
 // ---------- HUD / UI ----------
 function setStatus() {
   const el = $("statusPill"), t = $("statusText");
+  if (!el || !t) return;   // плашку прибрано з інтерфейсу
   let txt = "Головне меню", mine = false;
   if (G.scene === "game") {
     const cur = G.players[G.turn] ? G.players[G.turn].name : "";
