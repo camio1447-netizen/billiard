@@ -929,6 +929,7 @@ const G = {
   over: null,
   series: [0, 0],
   particles: [],
+  rockets: [],
   fx: [],
   shake: 0,
   spin: { x: 0, y: 0 },      // бокова / верхня-нижня підкрутка
@@ -1085,7 +1086,7 @@ function buildStartData(breaker) {
 
 function applyStart(d) {
   G.balls = d.balls.map(a => mkBall(a[0], a[1], a[2]));
-  G.anims = []; G.netTargets.clear();
+  G.anims = []; G.netTargets.clear(); G.rockets = []; G.particles = [];
   G.players[0].group = null; G.players[1].group = null;
   G.players[0].name = d.names[0]; G.players[1].name = d.names[1];
   G.open = true; G.isBreak = true; G.over = null; G.shot = null;
@@ -1113,6 +1114,60 @@ function netClk(kind, v) {
   if (n - lastClkSent < 70) return;
   lastClkSent = n;
   netSend({ t: "clk", k: kind, v: +clamp(v, 0, 1).toFixed(2) });
+}
+
+// ---------- САЛЮТ ЗА ЗАБИТИЙ М'ЯЧ (для легендарного ніка) ----------
+const FW_COLS = ["#ffe9a8", "#f2c552", "#fff6cf", "#e8a63c", "#ffffff", "#ffd166"];
+function fireworkBurst(x, y, big) {
+  // стеля, щоб серія забиттів поспіль не завалила слабкий пристрій
+  if (G.particles.length > 820) G.particles.splice(0, G.particles.length - 820);
+  const count = big ? 64 : 26;
+  const col = FW_COLS[rnd(FW_COLS.length)];
+  for (let i = 0; i < count; i++) {
+    // рівномірне коло + невеликий розкид, щоб розрив був круглий, а не плямою
+    const a = (i / count) * 6.283 + (Math.random() - .5) * .4;
+    const sp = (big ? 260 : 170) * (0.45 + Math.random() * .75);
+    G.particles.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 26,
+      rot: 0, vr: 0, s: 2.2 + Math.random() * 3,
+      col: Math.random() < .72 ? col : FW_COLS[rnd(FW_COLS.length)],
+      life: (big ? 1.1 : .8) + Math.random() * .9, spark: true,
+      twinkle: Math.random() < .35,
+    });
+  }
+  if (big) {                                  // повільне ядро, що осідає
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * 6.283, sp = 60 * Math.random();
+      G.particles.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        rot: 0, vr: 0, s: 3 + Math.random() * 2,
+        col: "#fff3c4", life: 1.6 + Math.random(), spark: true, twinkle: true,
+      });
+    }
+  }
+  G.fx.push({ kind: "flash", x, y, r: big ? 96 : 44, t: 0, dur: big ? .42 : .3 });
+}
+function sndFirework() {
+  if (!SND.on) return;
+  beep(420, .38, .05, "sine", 1500);                       // свист ракети
+  setTimeout(() => { noiseHit(.3, .28, 760); beep(170, .32, .12, "triangle", 55); }, 430);
+}
+// Салют летить лише коли забиває легендарний нік — і в суперника теж.
+function vipSalute(px, py) {
+  const who = G.shot ? G.shot.by : G.turn;
+  const p = G.players[who];
+  if (!p || !isVip(p.name)) return;
+  fireworkBurst(px, py, false);
+  const shots = Math.min(3, Math.max(0, 6 - G.rockets.length));
+  for (let i = 0; i < shots; i++) {
+    G.rockets.push({
+      x0: L + 60 + Math.random() * (PLAY_W - 120), y0: B_ + 26,
+      tx: L + 110 + Math.random() * (PLAY_W - 220),
+      ty: T + 50 + Math.random() * (PLAY_H * .42),
+      t: -i * 0.34, col: FW_COLS[rnd(FW_COLS.length)],
+    });
+  }
+  sndFirework();
 }
 
 function fxSpark(x, y, v) {
@@ -1328,6 +1383,7 @@ function potBall(b, p) {
   sndPot();
   fxPocketFlash(p, COLORS[b.id]);
   G.shake = Math.max(G.shake, 2.2);
+  if (b.id !== 0) vipSalute(p.x, p.y);
   if (G.shot) { if (b.id === 0) G.shot.cueDown = true; else G.shot.potted.push(b.id); }
   if (G.mode === "net" && G.simAuth) netSend({ t: "pot", id: b.id, px: p.x, py: p.y });
 }
@@ -2110,6 +2166,12 @@ function render(dt) {
         const r1 = 3 + k * 16 * f.v, r2 = r1 + 5 * f.v * (1 - k);
         line(ctx, f.x + Math.cos(a) * r1, f.y + Math.sin(a) * r1, f.x + Math.cos(a) * r2, f.y + Math.sin(a) * r2);
       }
+    } else if (f.kind === "flash") {
+      ctx.globalAlpha = (1 - k) * .5;
+      const g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * (.4 + k));
+      g.addColorStop(0, "rgba(255,244,206,.9)"); g.addColorStop(1, "rgba(255,214,102,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (.4 + k), 0, 7); ctx.fill();
     } else if (f.kind === "pocket") {
       ctx.globalAlpha = (1 - k) * .8;
       ctx.strokeStyle = f.col; ctx.lineWidth = 3.5 * (1 - k) + 1;
@@ -2153,15 +2215,49 @@ function render(dt) {
   }
   if (stickLunge > 0) stickLunge = Math.max(0, stickLunge - dt * 11);
 
+  // ракети салюту: летять по дузі, лишаючи іскристий хвіст
+  for (const r of G.rockets) {
+    if (r.t < 0) continue;
+    const e = 1 - Math.pow(1 - r.t, 2);
+    const x = r.x0 + (r.tx - r.x0) * r.t;
+    const y = r.y0 + (r.ty - r.y0) * e;
+    ctx.save();
+    for (let k = 0; k < 12; k++) {
+      const kt = Math.max(0, r.t - k * 0.019);
+      const ke = 1 - Math.pow(1 - kt, 2);
+      ctx.globalAlpha = (1 - k / 12) * .75;
+      ctx.beginPath();
+      ctx.arc(r.x0 + (r.tx - r.x0) * kt + (Math.random() - .5) * 2,
+              r.y0 + (r.ty - r.y0) * ke, 4.2 - k * .3, 0, 7);
+      ctx.fillStyle = r.col; ctx.fill();
+    }
+    ctx.globalAlpha = .5;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fillStyle = r.col; ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fillStyle = "#fffdf0"; ctx.fill();
+    ctx.restore();
+  }
+
   // частинки (конфеті / бризки з луз)
   for (let i = G.particles.length - 1; i >= 0; i--) {
     const p = G.particles[i];
-    p.vy += 900 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life -= dt;
+    if (p.spark) { p.vy += 330 * dt; p.vx *= .975; p.vy *= .985; }
+    else p.vy += 900 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life -= dt;
     if (p.life <= 0 || p.y > CAN_H + 20) { G.particles.splice(i, 1); continue; }
     ctx.save();
-    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-    ctx.globalAlpha = clamp(p.life, 0, 1);
-    ctx.fillStyle = p.col; ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * .6);
+    if (p.spark) {
+      let a = clamp(p.life, 0, 1);
+      if (p.twinkle) a *= .45 + .55 * Math.abs(Math.sin(nowSec * 26 + p.x));
+      ctx.globalAlpha = a * .35;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.s * 2.4, 0, 7); ctx.fillStyle = p.col; ctx.fill();
+      ctx.globalAlpha = a;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, 7); ctx.fillStyle = "#fffbe8"; ctx.fill();
+    } else {
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.globalAlpha = clamp(p.life, 0, 1);
+      ctx.fillStyle = p.col; ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * .6);
+    }
     ctx.restore();
   }
 }
@@ -2232,6 +2328,12 @@ function step(dt) {
       const v = MINV + clamp(pw, 0.06, 1) * (MAXV - MINV);
       beginShot(Math.cos(ang) * v, Math.sin(ang) * v);
     }
+  }
+  // ракети салюту
+  for (let i = G.rockets.length - 1; i >= 0; i--) {
+    const r = G.rockets[i];
+    r.t += dt / 0.62;
+    if (r.t >= 1) { fireworkBurst(r.tx, r.ty, true); G.rockets.splice(i, 1); }
   }
   updateAnims(dt);
   if (G.phase === "sim" && (G.simAuth || G.mode !== "net") && G.shot && allStopped() && G.anims.length === 0)
@@ -2600,6 +2702,7 @@ function onNetData(d) {
         b.potted = true; b.vx = 0; b.vy = 0;
         G.anims.push({ id: b.id, t: 0, sx: b.x, sy: b.y, px: d.px, py: d.py });
         sndPot();
+        if (b.id !== 0) vipSalute(d.px, d.py);
       }
       break;
     }
@@ -3098,7 +3201,7 @@ $("btnPauseExit").onclick = exitToMenu;
 // ---------- СТАРТ ----------
 function idleTable() {
   G.balls = buildRack();
-  G.anims = []; G.particles = [];
+  G.anims = []; G.particles = []; G.rockets = [];
   G.phase = "idle";
 }
 (function boot() {
