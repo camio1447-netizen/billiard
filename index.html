@@ -674,6 +674,12 @@
             </div>
           </div>
           <div class="srow">
+            <div><div class="sl">Графіка</div><div class="sd">Економний режим бере менше батареї на ноутбуці</div></div>
+            <div class="seg" id="setPerf">
+              <button data-v="auto">Плавно</button><button data-v="save">Економно</button>
+            </div>
+          </div>
+          <div class="srow">
             <div><div class="sl">Звук</div><div class="sd">Удари, борти, лузи</div></div>
             <div class="seg" id="setSound">
               <button data-v="on">Увімк</button><button data-v="off">Вимк</button>
@@ -884,9 +890,15 @@ function layoutTable() {
   const ah = Math.max(150, stage.clientHeight - 24);
   const w = Math.min(aw, ah * (CAN_W / CAN_H));
   const hh = w * CAN_H / CAN_W;
+  markDirty();
   box.style.width = Math.round(w) + "px";
   box.style.height = Math.round(hh) + "px";
-  dpr = Math.min(2, window.devicePixelRatio || 1);   // зум/екран міг змінитись
+  // Retina множить площу вчетверо: на 15" MacBook стіл — це ~8 млн пікселів
+  // щокадру, від чого ноут гріється. Обмежуємо площу, а не щільність.
+  const want = Math.min(2, window.devicePixelRatio || 1);
+  const maxPx = SET.perf === "save" ? 2.1e6 : 3.6e6;
+  const area = Math.max(1, w * hh);
+  dpr = Math.max(1, Math.min(want, Math.sqrt(maxPx / area)));
   const px = Math.max(320, Math.round(w * dpr)), py = Math.max(180, Math.round(hh * dpr));
   if (canvas.width !== px || canvas.height !== py) {
     canvas.width = px; canvas.height = py;
@@ -949,6 +961,7 @@ const SET = {
   aim: localStorage.getItem("vb_aim") || "full",     // full | short | off
   bot: localStorage.getItem("vb_bot") || "normal",   // easy | normal | hard
   race: +(localStorage.getItem("vb_race") || 1),     // партій до перемоги в серії
+  perf: localStorage.getItem("vb_perf") || "auto",   // auto | save — економія батареї
 };
 const BOT_DIFF = {
   easy:   { err: 0.055, comp: false, minCut: 0.45, power: 0.22 },
@@ -1121,7 +1134,7 @@ const FW_COLS = ["#ffe9a8", "#f2c552", "#fff6cf", "#e8a63c", "#ffffff", "#ffd166
 function fireworkBurst(x, y, big) {
   // стеля, щоб серія забиттів поспіль не завалила слабкий пристрій
   if (G.particles.length > 820) G.particles.splice(0, G.particles.length - 820);
-  const count = big ? 64 : 26;
+  const count = SET.perf === "save" ? (big ? 26 : 12) : (big ? 64 : 26);
   const col = FW_COLS[rnd(FW_COLS.length)];
   for (let i = 0; i < count; i++) {
     // рівномірне коло + невеликий розкид, щоб розрив був круглий, а не плямою
@@ -2123,9 +2136,8 @@ function render(dt) {
 
   // пульс навколо білої, коли твій хід
   if (G.phase === "aim" && myTurn() && !cue.potted && G.scene === "game") {
-    const pr = BR + 7 + Math.sin(nowSec * 3.2) * 2.5;
-    ctx.beginPath(); ctx.arc(cue.x, cue.y, pr, 0, 7);
-    ctx.strokeStyle = `rgba(217,164,65,${.32 + .14 * Math.sin(nowSec * 3.2)})`;
+    ctx.beginPath(); ctx.arc(cue.x, cue.y, BR + 7, 0, 7);
+    ctx.strokeStyle = "rgba(217,164,65,.38)";
     ctx.lineWidth = 2.5; ctx.stroke();
   }
 
@@ -2353,11 +2365,32 @@ function tick(nowMs) {
   while (dt > 1e-4) { const h = Math.min(dt, 1 / 30); step(h); dt -= h; }
 }
 
+// Сцена «жива» лише коли щось справді рухається. Решту часу (меню,
+// прицілювання, чужий хід) перемальовувати 60 разів на секунду немає сенсу —
+// саме це грiло ноутбук.
+function sceneIsLive() {
+  if (G.phase === "sim") return true;
+  if (G.anims.length || G.particles.length || G.rockets.length || G.fx.length) return true;
+  if (G.shake > 0.05) return true;
+  if (G.botAnim) return true;
+  if (G.aim.charging || G.sling.active || aimDrag || spinDrag) return true;
+  return false;
+}
+let dirty = true;
+function markDirty() { dirty = true; }
+
 function loop(ts) {
   const rdt = Math.min(0.033, (ts - lastRender) / 1000 || 0.016);
-  lastRender = ts;
   tick(performance.now());
-  render(rdt);
+  const live = sceneIsLive();
+  const minGap = live ? (SET.perf === "save" ? 32 : 0) : 200;   // економія — 30 к/с
+  if (live || dirty || ts - lastRender > minGap) {
+    if (ts - lastRender >= minGap) {
+      lastRender = ts;
+      render(rdt);
+      dirty = false;
+    }
+  }
   requestAnimationFrame(loop);
 }
 // страховка для фонової вкладки (rAF там не тікає)
@@ -2381,6 +2414,7 @@ function setStatus() {
 }
 
 function updateHUD() {
+  markDirty();
   for (let i = 0; i < 2; i++) {
     const el = $("pc" + i), p = G.players[i];
     const isMe = (G.mode === "net" || G.mode === "bot") && i === G.myIndex;
@@ -2677,7 +2711,7 @@ function onNetData(d) {
       break;
     }
     case "start": applyStart(d.d); break;
-    case "aim": G.oppAim = { ang: d.a, power: d.p }; break;
+    case "aim": G.oppAim = { ang: d.a, power: d.p }; markDirty(); break;
     case "shot": {
       const cue = ballById(0);
       G.shot = { first: null, potted: [], cueDown: false, by: G.turn };
@@ -2689,6 +2723,7 @@ function onNetData(d) {
       break;
     }
     case "st":
+      markDirty();
       if (G.phase === "sim" && !G.simAuth) {
         for (const a of d.b) {
           const b = ballById(a[0]);
@@ -2755,6 +2790,7 @@ function updatePlaceFromPointer(p) {
 let aimDrag = false;
 canvas.addEventListener("pointermove", e => {
   if (G.scene !== "game" || !myTurn()) return;
+  markDirty();
   // кнопку відпустили поза канвасом — драг прицілу не має "залипати"
   if (aimDrag && e.buttons === 0) aimDrag = false;
   const p = canvasPos(e);
@@ -2812,6 +2848,7 @@ canvas.addEventListener("contextmenu", e => e.preventDefault());
 // точне прицілювання стрілками (Shift — швидше)
 window.addEventListener("keydown", e => {
   if (G.scene !== "game" || G.phase !== "aim" || !myTurn()) return;
+  markDirty();
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     const st = (e.shiftKey ? 0.028 : 0.0045) * (e.key === "ArrowLeft" ? -1 : 1);
     G.aim.ang += st;
@@ -2822,6 +2859,7 @@ window.addEventListener("keydown", e => {
 // ---------- ВВІД: ПОВЗУНОК СИЛИ ----------
 const powerTrack = $("powerTrack");
 function setPowerUI(p) {
+  markDirty();
   $("powerFill").style.height = (p * 100) + "%";
   $("powerThumb").style.bottom = (p * 100) + "%";
   $("powerPct").textContent = p > 0.01 ? Math.round(p * 100) + "%" : "";
@@ -2863,6 +2901,7 @@ window.addEventListener("keydown", e => {
 // ---------- ВВІД: ПІДКРУТКА ----------
 const spinBallEl = $("spinBall"), spinDotEl = $("spinDot");
 function setSpinUI() {
+  markDirty();
   spinDotEl.style.left = (50 + G.spin.x * 36) + "%";
   spinDotEl.style.top = (50 - G.spin.y * 36) + "%";
 }
@@ -3158,6 +3197,7 @@ function syncSettingsUI() {
   mark("setBot", SET.bot);
   mark("setRace", SET.race);
   mark("setSound", SND.on ? "on" : "off");
+  mark("setPerf", SET.perf);
 }
 function bindSeg(id, fn) {
   const box = $(id); if (!box) return;
@@ -3172,6 +3212,7 @@ bindSeg("setRace", v => {
   if (G.scene !== "game" || G.mode !== "net") G.raceTo = +v;
 });
 bindSeg("setSound", v => setSound(v === "on"));
+bindSeg("setPerf", v => { SET.perf = v; localStorage.setItem("vb_perf", v); layoutTable(); });
 
 let settingsFrom = "menu";
 function openSettings(from) {
